@@ -16,13 +16,14 @@ import co.touchlab.sessionize.platform.NotificationsModel.setNotificationsEnable
 import android.os.RemoteException
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import co.touchlab.sessionize.NotificationPublisher.Companion.NOTIFICATION_ACTION_CREATE
-import co.touchlab.sessionize.NotificationPublisher.Companion.NOTIFICATION_ACTION_DISMISS
+import co.touchlab.sessionize.api.notificationDismissId
 import co.touchlab.sessionize.api.notificationReminderId
 
 class NotificationsApiImpl : NotificationsApi {
 
-    override fun createLocalNotification(title:String, message:String, timeInMS:Long, notificationId: Int) {
+    override fun scheduleLocalNotification(title:String, message:String, timeInMS:Long, notificationId: Int) {
+        Log.i(TAG, "Creating   ${if(notificationId == notificationReminderId) "reminder" else "feedback"} notification at $timeInMS ms: $title - $message")
+
         // Building Notification
         val channelId = AndroidAppContext.app.getString(R.string.notification_channel_id)
         val builder = NotificationCompat.Builder(AndroidAppContext.app, channelId)
@@ -39,13 +40,21 @@ class NotificationsApiImpl : NotificationsApi {
         builder.setContentIntent(activityIntent)
 
         // Building Intent wrapper
-        val pendingIntent = createPendingIntent(notificationId, NOTIFICATION_ACTION_CREATE, builder.build())
-        Log.i(TAG, "Creating   ${if(notificationId == notificationReminderId) "reminder" else "feedback"} notification at $timeInMS ms: $title - $message")
+        val pendingIntent = createPendingIntent(notificationId, notification = builder.build())
         val alarmManager = AndroidAppContext.app.getSystemService(Activity.ALARM_SERVICE) as AlarmManager
         alarmManager.set(AlarmManager.RTC_WAKEUP, timeInMS, pendingIntent)
     }
 
-    override fun cancelLocalNotification(notificationId: Int, withDelay: Long) {
+    override fun dismissLocalNotification(notificationId: Int, withDelay: Long){
+        Log.i(TAG, "Dismissing ${if (notificationId == notificationReminderId) "reminder" else "feedback"} notification at $withDelay ms")
+        val alarmManager = AndroidAppContext.app.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val pendingIntent = createPendingIntent(notificationDismissId, actionId = notificationId)
+        alarmManager.set(AlarmManager.RTC_WAKEUP, withDelay, pendingIntent)
+    }
+
+
+    override fun cancelLocalNotification(notificationId: Int) {
+        Log.i(TAG, "Cancelling ${if (notificationId == notificationReminderId) "reminder" else "feedback"} notification, alarm only")
         val alarmManager = AndroidAppContext.app.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val pendingIntent = createPendingIntent(notificationId, NOTIFICATION_ACTION_DISMISS)
         if(withDelay != 0L) {
@@ -60,6 +69,8 @@ class NotificationsApiImpl : NotificationsApi {
             Log.i(TAG, "Cancelling ${if (notificationId == notificationReminderId) "reminder" else "feedback"} notification, alarm only")
             val pendingIntent = createPendingIntent(notificationId, NOTIFICATION_ACTION_CREATE)
             alarmManager.cancel(pendingIntent)
+        } catch (e: RemoteException) {
+            Log.i(TAG, e.localizedMessage)
         }
 
     }
@@ -99,10 +110,11 @@ class NotificationsApiImpl : NotificationsApi {
         val TAG:String = NotificationsApiImpl::class.java.simpleName
 
 
-        fun createPendingIntent(id:Int, action:String, notification: Notification? = null): PendingIntent{
+        fun createPendingIntent(id:Int, actionId:Int? = null, notification: Notification? = null): PendingIntent{
             // Building Intent wrapper
             val intent = Intent(AndroidAppContext.app,NotificationPublisher::class.java).apply {
                 putExtra(NotificationPublisher.NOTIFICATION_ID, id)
+                putExtra(NotificationPublisher.NOTIFICATION_ACTION_ID, actionId)
                 putExtra(NotificationPublisher.NOTIFICATION, notification)
             }
             return PendingIntent.getBroadcast(AndroidAppContext.app, id + action.hashCode(), intent, PendingIntent.FLAG_CANCEL_CURRENT)
